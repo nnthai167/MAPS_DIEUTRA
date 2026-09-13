@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0f5132">
+<title>Bản đồ trạm sạc & đổi pin — Hà Nội (Đông Anh)</title>
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- Leaflet MarkerCluster -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+<!-- SheetJS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<!-- Tailwind -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          ink: '#0b1f16',
+          moss: {50:'#f2f8f4',100:'#dfeee5',200:'#b9dcc6',300:'#8bc4a1',400:'#5aa87c',500:'#398a5f',600:'#286f4a',700:'#20573c',800:'#1b4531',900:'#173a29'},
+          amber: {50:'#fff8ec',100:'#ffedc7',200:'#ffd98a',300:'#ffbd4d',400:'#ffa11f',500:'#f78406',600:'#d86602',700:'#b34d05',800:'#8f3d0b',900:'#75330d'}
+        },
+        fontFamily: {
+          sans: ['"Be Vietnam Pro"','system-ui','-apple-system','Segoe UI','Roboto','sans-serif'],
+        }
+      }
+    }
+  }
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+  html, body { height: 100%; overscroll-behavior: none; }
+  body { font-family: 'Be Vietnam Pro', system-ui, sans-serif; }
+  #map { height: 100%; width: 100%; background:#e7efe9; }
+  .leaflet-popup-content-wrapper { border-radius: 14px; padding: 0; overflow: hidden; }
+  .leaflet-popup-content { margin: 0; width: 260px !important; }
+  .leaflet-popup-tip { background: #fff; }
+  .station-marker { display:flex; align-items:center; justify-content:center; border-radius: 999px; box-shadow: 0 2px 6px rgba(0,0,0,.35); border: 2px solid #fff; font-size: 15px; }
+  .marker-cluster-custom { background: transparent !important; }
+  .cluster-pill { display:flex; align-items:center; justify-content:center; width:100%; height:100%; border-radius:999px; color:#fff; font-weight:700; font-size:13px; box-shadow:0 2px 8px rgba(0,0,0,.35); border:2px solid #fff; }
+  .tab-underline { position: relative; }
+  .tab-underline.active::after { content:''; position:absolute; left:14%; right:14%; bottom:-1px; height:3px; border-radius:3px; background:#286f4a; }
+  .scrollbar-thin::-webkit-scrollbar { width: 5px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background:#c7d9cd; border-radius:4px; }
+  .btn-press:active { transform: scale(0.96); }
+  .chip { transition: all .15s ease; }
+  #locateBtn.locating svg { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .fade-in { animation: fadeIn .25s ease; }
+  @keyframes fadeIn { from { opacity:0; transform: translateY(6px);} to { opacity:1; transform:none; } }
+  input[type="file"] { display:none; }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+</style>
+</head>
+<body class="bg-moss-50 text-ink">
+
+<div class="flex flex-col h-[100dvh] overflow-hidden">
+
+  <!-- Header -->
+  <header class="shrink-0 bg-moss-800 text-white px-4 pt-[calc(env(safe-area-inset-top)+10px)] pb-3 shadow-md z-[1000]">
+    <div class="flex items-center justify-between gap-3">
+      <div class="min-w-0">
+        <h1 class="text-[17px] font-bold leading-tight truncate">Trạm sạc & đổi pin — Hà Nội (Đông Anh)</h1>
+        <p class="text-[11.5px] text-moss-200 mt-0.5" id="statSummary">Đang tải dữ liệu…</p>
+      </div>
+      <label id="uploadBtn" class="btn-press shrink-0 flex flex-col items-center justify-center w-11 h-11 rounded-full bg-moss-700 active:bg-moss-600 cursor-pointer" title="Tải file Excel/CSV">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-moss-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><polyline points="7 9 12 4 17 9"/><line x1="12" y1="4" x2="12" y2="16"/></svg>
+        <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" />
+      </label>
+    </div>
+
+    <!-- Search -->
+    <div class="mt-3 relative">
+      <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-moss-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="searchInput" type="text" placeholder="Tìm theo mã trạm hoặc tên trạm..."
+        class="w-full bg-moss-900/40 focus:bg-white focus:text-ink placeholder-moss-300 focus:placeholder-gray-400 text-sm rounded-xl pl-9 pr-9 py-2.5 outline-none transition-colors border border-moss-600 focus:border-moss-300"/>
+      <button id="clearSearch" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-moss-300 hover:text-white">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <!-- Filter chips -->
+    <div class="mt-2.5 flex items-center gap-2 overflow-x-auto scrollbar-thin -mx-4 px-4 pb-0.5">
+      <button data-filter="all" class="chip-filter chip shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full bg-white text-moss-800">Tất cả</button>
+      <button data-filter="charging" class="chip-filter chip shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full bg-moss-700 text-moss-100 flex items-center gap-1">⚡ Trạm sạc</button>
+      <button data-filter="swap" class="chip-filter chip shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full bg-moss-700 text-moss-100 flex items-center gap-1">🔋 Đổi pin</button>
+      <button id="locateBtn" class="chip shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full bg-amber-500 text-white flex items-center gap-1 ml-auto">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M22 12h-3M5 12H2"/></svg>
+        Vị trí của tôi
+      </button>
+    </div>
+  </header>
+
+  <!-- Tabs -->
+  <nav class="shrink-0 bg-white border-b border-moss-100 flex text-sm font-semibold z-[900]">
+    <button data-tab="map" class="tab-underline active flex-1 py-3 text-moss-800">🗺️ Bản đồ</button>
+    <button data-tab="list" class="tab-underline flex-1 py-3 text-gray-400">📋 Danh sách trạm</button>
+  </nav>
+
+  <!-- Content -->
+  <main class="relative flex-1 min-h-0">
+
+    <!-- Map view -->
+    <section id="view-map" class="absolute inset-0">
+      <div id="map"></div>
+      <div id="mapLoading" class="absolute inset-0 flex items-center justify-center bg-moss-50/70 pointer-events-none">
+        <div class="text-moss-600 text-sm font-medium">Đang tải bản đồ…</div>
+      </div>
+      <button id="satelliteBtn" title="Chế độ vệ tinh" class="btn-press absolute right-3 top-3 z-[850] w-11 h-11 rounded-full bg-white shadow-lg flex items-center justify-center border border-moss-100">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-moss-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.34V5a3 3 0 0 0 3 3v0a2 2 0 0 1 2 2v0a2 2 0 0 0 2 2h1.5a2.5 2.5 0 0 1 2.5 2.5v0"/><path d="M15 19v-1a3 3 0 0 0-3-3v0"/><circle cx="12" cy="12" r="9"/></svg>
+      </button>
+    </section>
+
+    <!-- List view -->
+    <section id="view-list" class="absolute inset-0 hidden overflow-y-auto scrollbar-thin bg-moss-50">
+      <div id="listContainer" class="p-3 space-y-2.5 safe-bottom"></div>
+      <div id="listEmpty" class="hidden flex-col items-center justify-center text-center px-8 py-16 text-gray-400">
+        <div class="text-4xl mb-2">🔍</div>
+        <p class="text-sm">Không tìm thấy trạm phù hợp.</p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="fixed left-1/2 -translate-x-1/2 bottom-6 bg-ink text-white text-xs font-medium px-4 py-2.5 rounded-full shadow-lg opacity-0 pointer-events-none transition-opacity duration-300 z-[2000]"></div>
+
+<script>
+/* ============ 1. DỮ LIỆU TRẠM MẶC ĐỊNH (trích xuất từ file Excel Hà Nội - khu vực Đông Anh do người dùng cung cấp) ============ */
+const DEFAULT_STATIONS = [{"code": "B.HNO00500", "name": "Trạm đổi pin B.HNO00500", "type": "swap", "address": "Đại Mạch", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.132446, "lng": 105.760117, "count": 2}, {"code": "B.HNO00501", "name": "Trạm đổi pin B.HNO00501", "type": "swap", "address": "Đê tả Sông Hồng, Me Linh Commune, Me Linh Commune, Hà Nội 12921, Vietnam", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.15547, "lng": 105.731369, "count": 2}, {"code": "B.HNO00511", "name": "Trạm đổi pin B.HNO00511", "type": "swap", "address": "Xã Minh Phú", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.2768, "lng": 105.7978, "count": 1}, {"code": "B.HNO00562", "name": "Trạm đổi pin B.HNO00562", "type": "swap", "address": "Thôn Trung Hậu, Xã Tiền Phong", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.156585, "lng": 105.750606, "count": 2}, {"code": "B.HNO00734", "name": "Trạm đổi pin B.HNO00734", "type": "swap", "address": "Thôn Do Hạ, Xã Tiền Phong, Huyện Mê Linh, HN", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.152176, "lng": 105.76285, "count": 1}, {"code": "B.HNO01008", "name": "Trạm đổi pin B.HNO01008", "type": "swap", "address": "6 Nam Hồng , Nam Đông , Đông Anh , Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.162149, "lng": 105.787651, "count": 1}, {"code": "B.HNO01077", "name": "Trạm đổi pin B.HNO01077", "type": "swap", "address": "Thôn Cán Khê, Xã Nguyên Khê, Đông Anh, Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.178609, "lng": 105.843455, "count": 2}, {"code": "B.HNO01335", "name": "Trạm đổi pin B.HNO01335", "type": "swap", "address": "Xóm Đình, thôn Khê Nữ, Xã Nguyên Khê", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.17754, "lng": 105.830803, "count": 3}, {"code": "B.HNO01617", "name": "Trạm đổi pin B.HNO01617", "type": "swap", "address": "Điền Xá, Quang Tiến", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.2208, "lng": 105.782997, "count": 1}, {"code": "B.HNO01651", "name": "Trạm đổi pin B.HNO01651", "type": "swap", "address": "xã Vân Nội, huyện Đông Anh, TP Hà Nội, Việt Nam", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.1492, "lng": 105.8147, "count": 1}, {"code": "B.HNO01783", "name": "Trạm đổi pin B.HNO01783", "type": "swap", "address": "Xã Thư Lâm, Thành phố Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.151506, "lng": 105.904521, "count": 2}, {"code": "B.HNO02285", "name": "Trạm đổi pin B.HNO02285", "type": "swap", "address": "Thôn Đản Mỗ, Xã Đông Anh, Thành phố Hà Nội, Việt Nam", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.1466, "lng": 105.8462, "count": 2}, {"code": "B.HNO02293", "name": "Trạm đổi pin B.HNO02293", "type": "swap", "address": "Thôn 2, Xã Yên Lãng, Thành phố Hà Nội, Việt Nam", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.171659, "lng": 105.673426, "count": 1}, {"code": "B.HNO02295", "name": "Trạm đổi pin B.HNO02295", "type": "swap", "address": "5QVJ+Q95 Mê Linh, Hà Nội, Việt Nam", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.194376, "lng": 105.780979, "count": 1}, {"code": "B.HNO02406", "name": "Trạm đổi pin B.HNO02406", "type": "swap", "address": "Thôn Văn Thượng, Xã Đông Anh, Thành phố Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.104507, "lng": 105.85617, "count": 1}, {"code": "B.HNO02410", "name": "Trạm đổi pin B.HNO02410", "type": "swap", "address": "Thôn Cổ Điển, Xã Vĩnh Thanh, Thành phố Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.1165, "lng": 105.788091, "count": 1}, {"code": "B.HNO02438", "name": "Trạm đổi pin B.HNO02438", "type": "swap", "address": "Thôn Hà Hương, Xã Thư Lâm, Thành phố Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.153954, "lng": 105.895847, "count": 1}, {"code": "B.HNO02455", "name": "Trạm đổi pin B.HNO02455", "type": "swap", "address": "Số 118 Khu Miếu Thờ, Xã Sóc Sơn, Thành Phố Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.136725, "lng": 105.843767, "count": 1}, {"code": "B.HNO02553", "name": "Trạm đổi pin B.HNO02553", "type": "swap", "address": "Cửa hàng xe máy Mạnh Đức-TL 23, Kim Chung, Đông Anh, Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.1198, "lng": 105.7697, "count": 1}, {"code": "B.HNO10383", "name": "Trạm đổi pin B.HNO10383", "type": "swap", "address": "Điểm X4, thôn Hậu Oai, xã Uy Nỗ", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.1355, "lng": 105.8604, "count": 1}, {"code": "B.HNO10475", "name": "Trạm đổi pin B.HNO10475", "type": "swap", "address": "Đê Tả Sông Hồng, Hoàng Kim , Mê Linh , Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.16715, "lng": 105.69257, "count": 1}, {"code": "B.HNO10551", "name": "Trạm đổi pin B.HNO10551", "type": "swap", "address": "Thôn Yên Vinh, Xã Quang Minh, Thành phố Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.1961, "lng": 105.7306, "count": 2}, {"code": "B.HNO10731", "name": "Trạm đổi pin B.HNO10731", "type": "swap", "address": "Số 6 Tổ 3, Thị Trấn Đông Anh, Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.1366, "lng": 105.8436, "count": 1}, {"code": "B.HNO10949", "name": "Trạm đổi pin B.HNO10949", "type": "swap", "address": "Nhà ông Nguyễn Tuấn Hưng, SN 1979,Thôn Nại Châu, Yên Lãng, Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.1661, "lng": 105.6599, "count": 1}, {"code": "B.HNO11386", "name": "Trạm đổi pin B.HNO11386", "type": "swap", "address": "Xuân Trạch, xã Đông Anh, Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.080462, "lng": 105.85507, "count": 2}, {"code": "B.HNO16753", "name": "Trạm đổi pin B.HNO16753", "type": "swap", "address": "Xã Mai Lâm, Đông Anh, Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.08853, "lng": 105.89237, "count": 2}, {"code": "B.HNO16754", "name": "Trạm đổi pin B.HNO16754", "type": "swap", "address": "151 Dục Tú, xã Dục Tú, Đông Anh, Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.11444, "lng": 105.89703, "count": 1}, {"code": "B.HNO16763", "name": "Trạm đổi pin B.HNO16763", "type": "swap", "address": "Khu bãi giữ xe vi phạm huyện Đông Anh, gần QL3, Đông Anh", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.136858, "lng": 105.861266, "count": 1}, {"code": "B.HNO16764", "name": "Trạm đổi pin B.HNO16764", "type": "swap", "address": "Cổ Loa, Đông Anh, Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.12465, "lng": 105.854934, "count": 1}, {"code": "B.HNO16771", "name": "Trạm đổi pin B.HNO16771", "type": "swap", "address": "Cạnh Nhà thi đấu đa năng Việt Hùng, xã Đông Anh, TP Hà Nội (khu Việt Hùng cũ)", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.1399, "lng": 105.87718, "count": 1}, {"code": "B.HNO16780", "name": "Trạm đổi pin B.HNO16780", "type": "swap", "address": "Đối diện số 51 khu Công viên Xuân Trạch, xã Đông Anh, TP Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.08124, "lng": 105.85405, "count": 1}, {"code": "B.HNO16787", "name": "Trạm đổi pin B.HNO16787", "type": "swap", "address": "Đầu ngõ 113 đường Cao Lỗ, Nhà văn hóa Đông Anh, xã Đông Anh, TP Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.14043, "lng": 105.85153, "count": 4}, {"code": "B.HNO16792", "name": "Trạm đổi pin B.HNO16792", "type": "swap", "address": "Điểm đỗ xe Phúc Hậu 1, xã Đông Anh, TP Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.11856, "lng": 105.89077, "count": 1}, {"code": "B.HNO16838", "name": "Trạm đổi pin B.HNO16838", "type": "swap", "address": "Trường Mầm non Mai Lâm, xã Đông Anh, TP Hà Nội (thuộc Mai Lâm cũ)", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.090258, "lng": 105.890498, "count": 1}, {"code": "B.HNO16842", "name": "Trạm đổi pin B.HNO16842", "type": "swap", "address": "Trường Mầm non Dục Tú, xã Đông Anh, TP Hà Nội (thuộc Dục Tú cũ)", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.122497, "lng": 105.898851, "count": 1}, {"code": "B.HNO16843", "name": "Trạm đổi pin B.HNO16843", "type": "swap", "address": "Điểm buýt Quốc lộ 3, xã Đông Anh, TP Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.106892, "lng": 105.886695, "count": 1}, {"code": "B.HNO16851", "name": "Trạm đổi pin B.HNO16851", "type": "swap", "address": "Nhà văn hóa Phúc Lộc, xã Đông Anh, TP Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.133652, "lng": 105.846633, "count": 1}, {"code": "B.HNO16870", "name": "Trạm đổi pin B.HNO16870", "type": "swap", "address": "Cổng làng thôn Chùa, xã Đông Anh, TP Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.11259, "lng": 105.87358, "count": 1}, {"code": "B.HNO16880", "name": "Trạm đổi pin B.HNO16880", "type": "swap", "address": "Cạnh trạm biến áp thôn Tiền 6, xã Đông Anh, TP Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.116142, "lng": 105.89485, "count": 2}, {"code": "B.HNO16890", "name": "Trạm đổi pin B.HNO16890", "type": "swap", "address": "Vỉa hè cạnh trạm biến áp Đông Trù 3, xã Đông Anh, TP Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.078594, "lng": 105.879158, "count": 1}, {"code": "B.HNO16891", "name": "Trạm đổi pin B.HNO16891", "type": "swap", "address": "Vỉa hè cạnh trạm biến áp Đông Trù 4, xã Đông Anh, TP Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.077775, "lng": 105.876923, "count": 2}, {"code": "B.HNO16924", "name": "Trạm đổi pin B.HNO16924", "type": "swap", "address": "Số 38 tổ 4 thị trấn Đông Anh cũ, xã Đông Anh, TP Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.14361, "lng": 105.84534, "count": 2}, {"code": "B.HNO16928", "name": "Trạm đổi pin B.HNO16928", "type": "swap", "address": "Cạnh Ban Chỉ huy Quân sự xã Đông Anh, xã Đông Anh, TP Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.121, "lng": 105.87331, "count": 1}, {"code": "B.HNO16929", "name": "Trạm đổi pin B.HNO16929", "type": "swap", "address": "Cạnh trạm biến áp xóm Hương, xã Đông Anh, TP Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.1168, "lng": 105.87515, "count": 1}, {"code": "B.HNO16930", "name": "Trạm đổi pin B.HNO16930", "type": "swap", "address": "Cạnh trạm biến áp xóm Vang 2, xã Đông Anh, TP Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.11607, "lng": 105.87662, "count": 1}, {"code": "B.HNO16931", "name": "Trạm đổi pin B.HNO16931", "type": "swap", "address": "Cạnh trạm biến áp xóm Chợ 2, xã Đông Anh, TP Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.10864, "lng": 105.87691, "count": 1}, {"code": "B.HNO16933", "name": "Trạm đổi pin B.HNO16933", "type": "swap", "address": "Gần đình Lý Nhân, xã Đông Anh, TP Hà Nội", "ward": "", "district": "", "province": "Thành phố Hà Nội", "lat": 21.10667, "lng": 105.88583, "count": 2}];
+
+/* ============ 2. STATE ============ */
+let stations = DEFAULT_STATIONS.map(s => ({...s}));
+let userPos = null;
+let activeFilter = 'all';
+let searchTerm = '';
+let currentTab = 'map';
+let map, clusterGroup;
+let streetLayer, satelliteLayer;
+let isSatellite = false;
+const markerByCode = {};
+
+/* ============ 3. HELPERS ============ */
+function stripDiacritics(str){
+  return (str||'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d').replace(/Đ/g,'D').toLowerCase();
+}
+function haversine(lat1, lon1, lat2, lon2){
+  const R = 6371;
+  const dLat = (lat2-lat1)*Math.PI/180;
+  const dLon = (lon2-lon1)*Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function formatDistance(km){
+  if (km == null) return '';
+  if (km < 1) return Math.round(km*1000) + ' m';
+  return km.toFixed(1) + ' km';
+}
+function gmapsUrl(lat, lng){
+  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+}
+function showToast(msg, duration=2200){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(()=>{ t.style.opacity='0'; }, duration);
+}
+function typeMeta(type){
+  return type === 'swap'
+    ? { label: 'Trạm đổi pin', emoji: '🔋', color: '#d86602', bg:'bg-amber-50', text:'text-amber-700', ring:'ring-amber-200' }
+    : { label: 'Trạm sạc', emoji: '⚡', color: '#20573c', bg:'bg-moss-50', text:'text-moss-700', ring:'ring-moss-200' };
+}
+
+/* ============ 4. MAP INIT ============ */
+function initMap(){
+  map = L.map('map', { zoomControl:false, attributionControl:true }).setView([21.14, 105.85], 12);
+
+  streetLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19,
+    subdomains: 'abcd',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+  });
+
+  satelliteLayer = L.layerGroup([
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19,
+      attribution: 'Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community'
+    }),
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19,
+      pane: 'shadowPane'
+    })
+  ]);
+
+  streetLayer.addTo(map);
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+  clusterGroup = L.markerClusterGroup({
+    maxClusterRadius: 50,
+    iconCreateFunction: function(cluster){
+      const count = cluster.getChildCount();
+      const size = count < 10 ? 34 : count < 30 ? 40 : 48;
+      return L.divIcon({
+        html: `<div class="cluster-pill" style="background:#20573c;">${count}</div>`,
+        className: 'marker-cluster-custom',
+        iconSize: [size, size]
+      });
+    }
+  });
+  map.addLayer(clusterGroup);
+  document.getElementById('mapLoading').remove();
+}
+
+function makeIcon(type){
+  const meta = typeMeta(type);
+  return L.divIcon({
+    html: `<div class="station-marker" style="width:30px;height:30px;background:${meta.color};">${meta.emoji}</div>`,
+    className: '',
+    iconSize: [30,30],
+    iconAnchor: [15,15],
+    popupAnchor: [0,-14]
+  });
+}
+
+function popupHtml(s){
+  const meta = typeMeta(s.type);
+  return `
+    <div class="p-3.5">
+      <div class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full mb-1.5" style="background:${s.type==='swap'?'#fff3e0':'#e9f4ee'};color:${meta.color}">
+        ${meta.emoji} ${meta.label}
+      </div>
+      <div class="text-xs text-gray-400 font-medium">${s.code}</div>
+      <div class="font-bold text-[14px] leading-snug text-ink mt-0.5">${s.name || '(Chưa có tên)'}</div>
+      <div class="text-[12.5px] text-gray-500 mt-1 leading-snug">${s.address || ''}</div>
+      <a href="${gmapsUrl(s.lat,s.lng)}" target="_blank" rel="noopener"
+        class="mt-3 flex items-center justify-center gap-1.5 w-full text-white text-[13px] font-semibold py-2 rounded-lg"
+        style="background:${meta.color}">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+        Chỉ đường Google Maps
+      </a>
+    </div>`;
+}
+
+function rebuildMarkers(){
+  clusterGroup.clearLayers();
+  for (const key in markerByCode) delete markerByCode[key];
+  const filtered = getFilteredStations();
+  filtered.forEach(s => {
+    if (typeof s.lat !== 'number' || typeof s.lng !== 'number') return;
+    const marker = L.marker([s.lat, s.lng], { icon: makeIcon(s.type) });
+    marker.bindPopup(popupHtml(s));
+    marker.stationCode = s.code;
+    markerByCode[s.code] = marker;
+    clusterGroup.addLayer(marker);
+  });
+}
+
+function focusStation(code){
+  const s = stations.find(x => x.code === code);
+  if (!s) return;
+  currentTab = 'map';
+  applyTabUI();
+  map.setView([s.lat, s.lng], 16, { animate: true });
+  setTimeout(() => {
+    const m = markerByCode[code];
+    if (m) m.openPopup();
+  }, 300);
+}
+
+/* ============ 5. FILTER / SEARCH ============ */
+function getFilteredStations(){
+  let list = stations.filter(s => typeof s.lat === 'number' && typeof s.lng === 'number');
+  if (activeFilter !== 'all') list = list.filter(s => s.type === activeFilter);
+  if (searchTerm){
+    const q = stripDiacritics(searchTerm);
+    list = list.filter(s => stripDiacritics(s.code).includes(q) || stripDiacritics(s.name).includes(q) || stripDiacritics(s.address).includes(q));
+  }
+  if (userPos){
+    list = list.map(s => ({...s, _dist: haversine(userPos.lat, userPos.lng, s.lat, s.lng)}));
+    list.sort((a,b) => a._dist - b._dist);
+  } else {
+    list = list.map(s => ({...s, _dist: null}));
+  }
+  return list;
+}
+
+/* ============ 6. LIST RENDER ============ */
+function renderList(){
+  const container = document.getElementById('listContainer');
+  const empty = document.getElementById('listEmpty');
+  const list = getFilteredStations();
+
+  if (list.length === 0){
+    container.innerHTML = '';
+    empty.classList.remove('hidden');
+    empty.classList.add('flex');
+    return;
+  }
+  empty.classList.add('hidden');
+  empty.classList.remove('flex');
+
+  container.innerHTML = list.map(s => {
+    const meta = typeMeta(s.type);
+    return `
+    <div class="fade-in bg-white rounded-2xl p-3.5 shadow-sm ring-1 ${meta.ring} flex flex-col gap-2" data-code="${s.code}">
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${meta.bg} ${meta.text}">${meta.emoji} ${meta.label}</span>
+            ${s._dist != null ? `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">📍 ${formatDistance(s._dist)}</span>` : ''}
+          </div>
+          <div class="text-[11px] text-gray-400 font-medium mt-1">${s.code}</div>
+          <div class="font-bold text-[14.5px] text-ink leading-snug mt-0.5">${s.name || '(Chưa có tên)'}</div>
+          <div class="text-[12.5px] text-gray-500 leading-snug mt-0.5">${s.address || ''}</div>
+        </div>
+      </div>
+      <div class="flex gap-2 mt-0.5">
+        <button class="btn-press view-on-map-btn flex-1 text-[12.5px] font-semibold py-2 rounded-lg bg-moss-50 text-moss-800 flex items-center justify-center gap-1" data-code="${s.code}">
+          🗺️ Xem trên bản đồ
+        </button>
+        <a href="${gmapsUrl(s.lat,s.lng)}" target="_blank" rel="noopener" class="btn-press flex-1 text-[12.5px] font-semibold py-2 rounded-lg text-white text-center flex items-center justify-center gap-1" style="background:${meta.color}">
+          🧭 Chỉ đường
+        </a>
+      </div>
+    </div>`;
+  }).join('');
+
+  container.querySelectorAll('.view-on-map-btn').forEach(btn => {
+    btn.addEventListener('click', () => focusStation(btn.dataset.code));
+  });
+}
+
+/* ============ 7. UI: TABS / CHIPS / SEARCH ============ */
+function applyTabUI(){
+  document.querySelectorAll('[data-tab]').forEach(btn => {
+    const active = btn.dataset.tab === currentTab;
+    btn.classList.toggle('active', active);
+    btn.classList.toggle('text-moss-800', active);
+    btn.classList.toggle('text-gray-400', !active);
+  });
+  document.getElementById('view-map').classList.toggle('hidden', currentTab !== 'map');
+  document.getElementById('view-list').classList.toggle('hidden', currentTab !== 'list');
+  if (currentTab === 'map') setTimeout(() => map.invalidateSize(), 50);
+  if (currentTab === 'list') renderList();
+}
+
+document.querySelectorAll('[data-tab]').forEach(btn => {
+  btn.addEventListener('click', () => { currentTab = btn.dataset.tab; applyTabUI(); });
+});
+
+document.querySelectorAll('.chip-filter').forEach(btn => {
+  btn.addEventListener('click', () => {
+    activeFilter = btn.dataset.filter;
+    document.querySelectorAll('.chip-filter').forEach(b => {
+      const on = b === btn;
+      b.classList.toggle('bg-white', on);
+      b.classList.toggle('text-moss-800', on);
+      b.classList.toggle('bg-moss-700', !on);
+      b.classList.toggle('text-moss-100', !on);
+    });
+    rebuildMarkers();
+    if (currentTab === 'list') renderList();
+    updateSummary();
+  });
+});
+
+const searchInput = document.getElementById('searchInput');
+const clearSearchBtn = document.getElementById('clearSearch');
+searchInput.addEventListener('input', () => {
+  searchTerm = searchInput.value.trim();
+  clearSearchBtn.classList.toggle('hidden', !searchTerm);
+  rebuildMarkers();
+  if (currentTab === 'list') renderList();
+  updateSummary();
+});
+clearSearchBtn.addEventListener('click', () => {
+  searchInput.value = ''; searchTerm = '';
+  clearSearchBtn.classList.add('hidden');
+  rebuildMarkers();
+  if (currentTab === 'list') renderList();
+  updateSummary();
+});
+
+function updateSummary(){
+  const list = getFilteredStations();
+  const charging = stations.filter(s=>s.type==='charging').length;
+  const swap = stations.filter(s=>s.type==='swap').length;
+  document.getElementById('statSummary').textContent =
+    `${list.length}/${stations.length} trạm hiển thị · ⚡ ${charging} trạm sạc · 🔋 ${swap} trạm đổi pin`;
+}
+
+/* ============ 8. GEOLOCATION ============ */
+const satelliteBtn = document.getElementById('satelliteBtn');
+satelliteBtn.addEventListener('click', () => {
+  isSatellite = !isSatellite;
+  if (isSatellite){
+    map.removeLayer(streetLayer);
+    satelliteLayer.addTo(map);
+    satelliteBtn.classList.add('bg-moss-800');
+    satelliteBtn.querySelector('svg').classList.remove('text-moss-700');
+    satelliteBtn.querySelector('svg').classList.add('text-white');
+    showToast('Chế độ vệ tinh');
+  } else {
+    map.removeLayer(satelliteLayer);
+    streetLayer.addTo(map);
+    satelliteBtn.classList.remove('bg-moss-800');
+    satelliteBtn.querySelector('svg').classList.remove('text-white');
+    satelliteBtn.querySelector('svg').classList.add('text-moss-700');
+    showToast('Chế độ bản đồ thường');
+  }
+});
+
+const locateBtn = document.getElementById('locateBtn');
+locateBtn.addEventListener('click', () => {
+  if (!navigator.geolocation){
+    showToast('Trình duyệt không hỗ trợ định vị GPS');
+    return;
+  }
+  locateBtn.classList.add('locating');
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      locateBtn.classList.remove('locating');
+      showToast('Đã lấy vị trí — danh sách đã sắp xếp theo khoảng cách');
+
+      if (window._userMarker) map.removeLayer(window._userMarker);
+      window._userMarker = L.circleMarker([userPos.lat, userPos.lng], {
+        radius: 8, color:'#fff', weight:3, fillColor:'#2563eb', fillOpacity:1
+      }).addTo(map).bindPopup('Vị trí của bạn');
+      map.setView([userPos.lat, userPos.lng], 13);
+
+      renderList();
+      currentTab = 'list';
+      applyTabUI();
+    },
+    err => {
+      locateBtn.classList.remove('locating');
+      showToast('Không thể lấy vị trí: ' + (err.message || 'đã từ chối quyền truy cập'));
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+});
+
+/* ============ 9. IMPORT EXCEL/CSV (SheetJS) ============ */
+const NAME_MAP = {
+  code: ['ma tram','matram','code','ma_tram','station code','station_code','id'],
+  name: ['ten tram','tentram','name','ten_tram','station name'],
+  address: ['dia chi','diachi','address'],
+  lat: ['lat','latitude','vi do','vido'],
+  lng: ['lng','lon','long','longitude','kinh do','kinhdo'],
+  type: ['loai','type','loai tram']
+};
+function matchColumn(headers, keys){
+  const normHeaders = headers.map(h => stripDiacritics(String(h||'')).replace(/[^a-z0-9]/g,''));
+  for (const key of keys){
+    const normKey = stripDiacritics(key).replace(/[^a-z0-9]/g,'');
+    const idx = normHeaders.findIndex(h => h === normKey || h.includes(normKey));
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
+
+document.getElementById('fileInput').addEventListener('change', function(e){
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(evt){
+    try {
+      const wb = XLSX.read(evt.target.result, { type: 'binary' });
+      const firstSheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
+      if (rows.length < 2) { showToast('File không có dữ liệu'); return; }
+
+      const headers = rows[0];
+      const idxCode = matchColumn(headers, NAME_MAP.code);
+      const idxName = matchColumn(headers, NAME_MAP.name);
+      const idxAddr = matchColumn(headers, NAME_MAP.address);
+      const idxLat = matchColumn(headers, NAME_MAP.lat);
+      const idxLng = matchColumn(headers, NAME_MAP.lng);
+      const idxType = matchColumn(headers, NAME_MAP.type);
+
+      if (idxLat === -1 || idxLng === -1){
+        showToast('Không tìm thấy cột Lat/Lng trong file');
+        return;
+      }
+
+      const imported = [];
+      for (let i = 1; i < rows.length; i++){
+        const r = rows[i];
+        const lat = parseFloat(r[idxLat]);
+        const lng = parseFloat(r[idxLng]);
+        if (isNaN(lat) || isNaN(lng)) continue;
+        imported.push({
+          code: idxCode !== -1 ? String(r[idxCode]) : `ROW-${i}`,
+          name: idxName !== -1 ? String(r[idxName]) : '',
+          address: idxAddr !== -1 ? String(r[idxAddr]) : '',
+          type: idxType !== -1 && stripDiacritics(String(r[idxType])).includes('doi pin') ? 'swap' : 'charging',
+          lat, lng, count: 1
+        });
+      }
+
+      if (imported.length === 0){
+        showToast('Không đọc được trạm hợp lệ nào từ file');
+        return;
+      }
+
+      stations = imported;
+      userPos = null;
+      searchInput.value = ''; searchTerm = '';
+      activeFilter = 'all';
+      document.querySelectorAll('.chip-filter').forEach(b => {
+        const on = b.dataset.filter === 'all';
+        b.classList.toggle('bg-white', on);
+        b.classList.toggle('text-moss-800', on);
+        b.classList.toggle('bg-moss-700', !on);
+        b.classList.toggle('text-moss-100', !on);
+      });
+
+      rebuildMarkers();
+      renderList();
+      updateSummary();
+      if (stations.length){
+        const bounds = L.latLngBounds(stations.map(s => [s.lat, s.lng]));
+        map.fitBounds(bounds, { padding: [30,30] });
+      }
+      showToast(`Đã tải ${imported.length} trạm từ file`);
+    } catch(err){
+      console.error(err);
+      showToast('Lỗi khi đọc file: định dạng không hợp lệ');
+    }
+  };
+  reader.readAsBinaryString(file);
+  e.target.value = '';
+});
+
+/* ============ 10. INIT ============ */
+initMap();
+rebuildMarkers();
+updateSummary();
+applyTabUI();
+</script>
+</body>
+</html>
